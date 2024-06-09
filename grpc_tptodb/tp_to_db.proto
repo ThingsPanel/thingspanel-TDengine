@@ -1,0 +1,187 @@
+// Copyright 2015 gRPC authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+option go_package = "github.com/ThingsPanel/thingspane-cassandra/grpc/tptodb/";
+
+
+// option java_multiple_files = true;
+// option java_package = "io.grpc.examples.helloworld";
+// option java_outer_classname = "HelloWorldProto";
+
+package tptodb;
+
+// The greeting service definition.
+service Greeter {
+  // Sends a greeting
+  rpc SayHello (HelloRequest) returns (HelloReply) {}
+
+}
+
+// The request message containing the user's name.
+message HelloRequest {
+  string name = 1;
+}
+
+// The response message containing the greetings
+message HelloReply {
+  string message = 1;
+}
+
+service ThingsPanel {
+  // 获取设备属性历史数据
+  rpc GetDeviceHistory (GetDeviceHistoryRequest) returns (GetDeviceHistoryReply) {}
+  rpc GetDeviceHistoryWithPageAndPage (GetDeviceHistoryWithPageAndPageRequest) returns (GetDeviceHistoryWithPageAndPageReply) {}
+  rpc GetDeviceAttributesHistory (GetDeviceAttributesHistoryRequest) returns (GetDeviceAttributesHistoryReply) {}
+  // 字典形式的当前数据
+  rpc GetDeviceAttributesCurrents (GetDeviceAttributesCurrentsRequest) returns (GetDeviceAttributesCurrentsReply) {}
+  // 列表形式的当前数据
+  rpc GetDeviceAttributesCurrentList (GetDeviceAttributesCurrentListRequest) returns (GetDeviceAttributesCurrentListReply) {}
+  rpc GetDeviceKVDataWithNoAggregate (GetDeviceKVDataWithNoAggregateRequest) returns (GetDeviceKVDataWithNoAggregateReply) {}
+  rpc GetDeviceKVDataWithAggregate (GetDeviceKVDataWithAggregateRequest) returns (GetDeviceKVDataWithAggregateReply) {}
+}
+
+message GetDeviceHistoryRequest {
+  string device_id = 1;
+  string key = 2;
+  int64 start_time = 3;
+  int64 end_time = 4;
+  int64 limit = 5;
+}
+message GetDeviceHistoryReply {
+  int64 status = 1;
+  string message = 2;
+  string  data = 3;
+  /*data示例：
+  {
+    "total": 2,
+    "data": [
+        {
+            "systime": "2023-08-18 14:27:57",
+            "Motiondetect": 1
+        },
+        {
+            "systime": "2023-08-18 14:27:58",
+            "Motiondetect": 1
+        }
+    ]
+  }
+  */
+}
+
+message GetDeviceAttributesHistoryRequest {
+  string device_id = 1;
+  repeated string attribute = 2;
+  int64 start_time = 3;
+  int64 end_time = 4;
+  int64 limit = 5;
+  int64 rate = 6;
+}
+message GetDeviceAttributesHistoryReply {
+  int64 status = 1;
+  string message = 2;
+  string  data = 3;
+  /*data示例：
+  {
+    "Motiondetect": [
+        1,
+        1
+    ],
+    "systime": [
+        "2023-08-18 14:27:57",
+        "2023-08-18 14:27:58"
+    ]
+  }
+  */
+}
+
+message GetDeviceAttributesCurrentsRequest {
+  string device_id = 1;
+  repeated string attribute = 2;
+}
+message GetDeviceAttributesCurrentsReply {
+  int64 status = 1;
+  string message = 2;
+  string  data = 3;
+  /* data示例：
+  {
+    "pm10": 31,
+    "pm25": 47,
+    "systime": "2023-08-22 22:23:45"
+  } */
+}
+
+message GetDeviceKVDataWithNoAggregateRequest{
+  string device_id = 1;
+  string key = 2;
+  int64 start_time = 3;
+  int64 end_time = 4;
+}
+
+
+message GetDeviceKVDataWithNoAggregateReply{
+  int64 status = 1;
+  string message = 2;
+  string  data = 3;
+}
+
+message GetDeviceKVDataWithAggregateRequest{
+  string device_id = 1;
+  string key = 2;
+  int64 start_time = 3;
+  int64 end_time = 4;
+  int64 aggregate_window =5; //微秒
+  string aggregate_func = 6;
+}
+
+message GetDeviceKVDataWithAggregateReply{
+  int64 status = 1;
+  string message = 2;
+  string  data = 3;
+}
+
+message GetDeviceHistoryWithPageAndPageRequest{
+  string device_id = 1;
+  string key = 2;
+  int64 start_time = 3;
+  int64 end_time = 4;
+  int64 page = 5;
+  int64 page_records=6;
+  int64 first_data_time = 7;
+  int64 end_data_time = 8;
+}
+
+message GetDeviceHistoryWithPageAndPageReply{
+    int64 status = 1;
+  string message = 2;
+  string  data = 3;
+}
+
+message GetDeviceAttributesCurrentListRequest {
+  string device_id = 1;
+  repeated string attribute = 2;
+}
+message GetDeviceAttributesCurrentListReply {
+  int64 status = 1;
+  string message = 2;
+  string  data = 3;
+  /* data示例：
+  [{
+    "dbl_v": 0,
+    "key": "s",
+    "str_v": "",
+    "ts": 1697684491718228
+  }] */
+}
