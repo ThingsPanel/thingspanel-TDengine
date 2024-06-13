@@ -45,7 +45,7 @@ var ctx = context.Background()
 
 func InitDb() {
 	if err := InitTd(); err != nil {
-		log.Fatalf("Failed to initialize Cassandra: %v", err)
+		log.Fatalf("Failed to initialize db: %v", err)
 	}
 	log.Println("init db success")
 }
