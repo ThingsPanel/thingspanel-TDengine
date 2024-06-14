@@ -82,6 +82,8 @@ func (s *server) GetDeviceKVDataWithAggregate(ctx context.Context, in *pb.GetDev
 		return nil, err
 	}
 
+	// log.Printf("%+v\n", dataMap)
+
 	dataMapList := make([]map[string]interface{}, 0)
 	for _, v := range dataMap {
 		tmpMap := make(map[string]interface{})
@@ -89,6 +91,7 @@ func (s *server) GetDeviceKVDataWithAggregate(ctx context.Context, in *pb.GetDev
 		tmpMap["x2"] = currentStartTime + window
 		tmpMap["y"] = v["v"]
 		dataMapList = append(dataMapList, tmpMap)
+		currentStartTime = currentStartTime + window
 	}
 
 	// resultsChan := make(chan result, 2000)
