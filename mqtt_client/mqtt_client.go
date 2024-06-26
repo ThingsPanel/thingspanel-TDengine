@@ -140,7 +140,7 @@ func messageHandler(messages chan<- map[string]interface{}, _ mqtt.Client, msg m
 		log.Printf("Failed to unmarshal MQTT message: %v", err)
 		return
 	}
-	// log.Printf("valuesMap:%+v\n", valuesMap)
+	log.Printf("%+v\n", valuesMap)
 
 	// 当前时间戳，毫秒级
 	//currentTime := time.Now().Format(time.RFC3339)
