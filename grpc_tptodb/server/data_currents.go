@@ -27,8 +27,22 @@ func (s *server) GetDeviceAttributesCurrents(ctx context.Context, in *pb.GetDevi
 
 	// 查询表ts_kv
 	if len(attributeList) == 0 {
-		finder.Append(fmt.Sprintf("SELECT ts,k,bool_v,number_v,string_v,tenant_id FROM %s.%s WHERE device_id = ? order by ts desc limit 1",
+		finder.Append(fmt.Sprintf("SELECT distinct k FROM %s.%s WHERE device_id = ?",
 			db.DBName, db.SuperTableTv), deviceId)
+		dataMap, err = zorm.QueryMap(ctx, finder, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, mp := range dataMap {
+			if _, ok := mp["k"]; ok {
+				attributeList = append(attributeList, fmt.Sprintf("%v", mp["k"]))
+			}
+		}
+
+		finder = zorm.NewFinder()
+		finder.Append(fmt.Sprintf("SELECT ts,k,bool_v,number_v,string_v,tenant_id FROM %s.%s WHERE device_id = ? AND k in (?) order by ts desc limit ?",
+			db.DBName, db.SuperTableTv), deviceId, attributeList, len(attributeList))
 		dataMap, err = zorm.QueryMap(ctx, finder, nil)
 		if err != nil {
 			return nil, err
@@ -116,8 +130,22 @@ func (s *server) GetDeviceAttributesCurrentList(ctx context.Context, in *pb.GetD
 
 	// 查询表ts_kv
 	if len(attributeList) == 0 {
-		finder.Append(fmt.Sprintf("SELECT ts,k,bool_v,number_v,string_v,tenant_id FROM %s.%s WHERE device_id = ? order by ts desc",
+		finder.Append(fmt.Sprintf("SELECT distinct k FROM %s.%s WHERE device_id = ?",
 			db.DBName, db.SuperTableTv), deviceId)
+		dataMap, err = zorm.QueryMap(ctx, finder, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, mp := range dataMap {
+			if _, ok := mp["k"]; ok {
+				attributeList = append(attributeList, fmt.Sprintf("%v", mp["k"]))
+			}
+		}
+
+		finder = zorm.NewFinder()
+		finder.Append(fmt.Sprintf("SELECT ts,k,bool_v,number_v,string_v,tenant_id FROM %s.%s WHERE device_id = ? AND k in (?) order by ts desc",
+			db.DBName, db.SuperTableTv), deviceId, attributeList)
 		dataMap, err = zorm.QueryMap(ctx, finder, nil)
 		if err != nil {
 			return nil, err
