@@ -33,12 +33,15 @@ func (s *server) GetDeviceAttributesCurrents(ctx context.Context, in *pb.GetDevi
 		if err != nil {
 			return nil, err
 		}
+		fmt.Println(dataMap)
 
 		for _, mp := range dataMap {
 			if _, ok := mp["k"]; ok {
 				attributeList = append(attributeList, fmt.Sprintf("%v", mp["k"]))
 			}
 		}
+
+		fmt.Println(attributeList)
 
 		finder = zorm.NewFinder()
 		finder.Append(fmt.Sprintf("SELECT ts,k,bool_v,number_v,string_v,tenant_id FROM %s.%s WHERE device_id = ? AND k in (?) order by ts desc limit ?",
