@@ -29,47 +29,59 @@ func (s *server) GetDeviceAttributesCurrents(ctx context.Context, in *pb.GetDevi
 	if len(attributeList) == 0 {
 		finder.Append(fmt.Sprintf("SELECT distinct k FROM %s.%s WHERE device_id = ?",
 			db.DBName, db.SuperTableTv), deviceId)
-		dataMap, err = zorm.QueryMap(ctx, finder, nil)
+		dataMaptmp1, err := zorm.QueryMap(ctx, finder, nil)
 		if err != nil {
 			return nil, err
 		}
-		fmt.Println(dataMap)
+		log.Println("dataMaptmp1: ", dataMaptmp1)
 
-		for _, mp := range dataMap {
+		for _, mp := range dataMaptmp1 {
 			if _, ok := mp["k"]; ok {
 				attributeList = append(attributeList, fmt.Sprintf("%v", mp["k"]))
 			}
 		}
 
-		fmt.Println(attributeList)
+		log.Println("attributeList: ", attributeList)
 
-		finder = zorm.NewFinder()
-		finder.Append(fmt.Sprintf("SELECT ts,k,bool_v,number_v,string_v,tenant_id FROM %s.%s WHERE device_id = ? AND k in (?) order by ts desc limit ?",
-			db.DBName, db.SuperTableTv), deviceId, attributeList, len(attributeList))
-		dataMap, err = zorm.QueryMap(ctx, finder, nil)
-		if err != nil {
-			return nil, err
+		for i := 0; i < len(attributeList); i++ {
+			finder = zorm.NewFinder()
+			finder.Append(fmt.Sprintf("SELECT ts,k,bool_v,number_v,string_v,tenant_id FROM %s.%s WHERE device_id = ? AND k in (?) order by ts desc limit 1",
+				db.DBName, db.SuperTableTv), deviceId, attributeList[i])
+			dataMaptmp2, err := zorm.QueryMap(ctx, finder, nil)
+			if err != nil {
+				log.Println("QueryMap: ", err)
+				continue
+			}
+			if len(dataMaptmp2) > 0 {
+				dataMap = append(dataMap, dataMaptmp2...)
+			}
 		}
+
 	} else {
-		finder.Append(fmt.Sprintf("SELECT ts,k,bool_v,number_v,string_v,tenant_id FROM %s.%s WHERE device_id = ? AND k in (?) order by ts desc limit 1",
-			db.DBName, db.SuperTableTv), deviceId, attributeList)
-		dataMap, err = zorm.QueryMap(ctx, finder, nil)
-		if err != nil {
-			return nil, err
+		for i := 0; i < len(attributeList); i++ {
+			finder = zorm.NewFinder()
+			finder.Append(fmt.Sprintf("SELECT ts,k,bool_v,number_v,string_v,tenant_id FROM %s.%s WHERE device_id = ? AND k in (?) order by ts desc limit 1",
+				db.DBName, db.SuperTableTv), deviceId, attributeList[i])
+			dataMaptmp2, err := zorm.QueryMap(ctx, finder, nil)
+			if err != nil {
+				log.Println("QueryMap: ", err)
+				continue
+			}
+			if len(dataMaptmp2) > 0 {
+				dataMap = append(dataMap, dataMaptmp2...)
+			}
 		}
 	}
 
 	for _, mp := range dataMap {
 		m := make(map[string]interface{}, 0)
 		if string_v, ok := mp["string_v"]; ok {
-			// fmt.Printf("string_v:%+v\n", string_v)
 			if fmt.Sprintf("%v", string_v) != db.StringDefault {
 				m["string_v"] = string_v
 			}
 		}
 
 		if number_v, ok := mp["number_v"]; ok {
-			// fmt.Printf("number_v:%+v\n", number_v)
 			if v, ok := number_v.(float64); ok && v != db.NumberDefault {
 				m["number_v"] = v
 			}
@@ -100,13 +112,10 @@ func (s *server) GetDeviceAttributesCurrents(ctx context.Context, in *pb.GetDevi
 		if _, ok := mp["k"]; ok {
 			m["key"] = mp["k"]
 		}
-
 		m["device_id"] = deviceId
-
 		if _, ok := mp["tenant_id"]; ok {
 			m["tenant_id"] = mp["tenant_id"]
 		}
-
 		if len(m) > 0 {
 			retMap = append(retMap, m)
 		}
