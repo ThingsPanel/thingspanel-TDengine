@@ -28,6 +28,11 @@ func (s *server) GetDeviceAttributesHistory(ctx context.Context, in *pb.GetDevic
 	log.Print("st: ", startTime.String())
 	log.Print("ed: ", endTime.String())
 
+	var limit int64 = in.GetLimit()
+	if limit <= 0 {
+		limit = 10
+	}
+
 	var dataSlice [][]map[string]interface{}
 	var attributeList []string = in.GetAttribute()
 	finder := zorm.NewFinder()
@@ -36,30 +41,47 @@ func (s *server) GetDeviceAttributesHistory(ctx context.Context, in *pb.GetDevic
 	var indexList []int
 	var err error
 
-	// 遍历Attributes
-	for _, v := range attributeList {
-		if v == "" || v == "systime" {
-			continue
+	if len(attributeList) > 0 {
+		// 遍历Attributes
+		for _, v := range attributeList {
+			if v == "" || v == "systime" {
+				continue
+			}
+			indexList = append(indexList, 0)
+			// 获取每个属性的历史数据列表
+			var dataList []map[string]interface{}
+
+			finder.Append(fmt.Sprintf("SELECT ts,k,bool_v,number_v,string_v,tenant_id FROM %s.%s WHERE device_id = ? AND k = ? AND ts >= ? AND ts <= ? order by ts asc",
+				db.DBName, db.SuperTableTv), in.GetDeviceId(), v, startTime, endTime)
+
+			page := zorm.NewPage()
+			page.PageNo = 1            // 查询第1页,默认是1
+			page.PageSize = int(limit) // 每页20条,默认是20
+
+			dataList, err = zorm.QueryMap(ctx, finder, nil)
+			if err != nil {
+				log.Printf("Failed to get data from ts_kv: %v", err)
+				return nil, err
+			}
+			dataSlice = append(dataSlice, dataList)
 		}
+	} else {
 		indexList = append(indexList, 0)
 		// 获取每个属性的历史数据列表
 		var dataList []map[string]interface{}
 
-		finder.Append(fmt.Sprintf("SELECT ts,k,bool_v,number_v,string_v,tenant_id FROM %s.%s WHERE device_id = ? AND k = ? AND ts >= ? AND ts <= ? order by ts asc",
-			db.DBName, db.SuperTableTv), in.GetDeviceId(), v, startTime, endTime)
+		finder.Append(fmt.Sprintf("SELECT ts,k,bool_v,number_v,string_v,tenant_id FROM %s.%s WHERE device_id = ? AND ts >= ? AND ts <= ? order by ts asc",
+			db.DBName, db.SuperTableTv), in.GetDeviceId(), startTime, endTime)
+
+		page := zorm.NewPage()
+		page.PageNo = 1            // 查询第1页,默认是1
+		page.PageSize = int(limit) // 每页20条,默认是20
+
 		dataList, err = zorm.QueryMap(ctx, finder, nil)
 		if err != nil {
 			log.Printf("Failed to get data from ts_kv: %v", err)
+			return nil, err
 		}
-
-		// 根据时间从数据库获取数据
-		// iter := db.CassandraSession.Query("SELECT key,ts,dbl_v,str_v FROM ts_kv WHERE device_id = ? AND key = ? AND ts >= ? AND ts <= ? order by ts asc", in.GetDeviceId(), v, startTime, endTime).Iter()
-		// // 将结果存入dataList
-		// dataList, err := iter.SliceMap()
-		// if err != nil {
-		// 	log.Printf("Failed to get data from ts_kv: %v", err)
-		// }
-
 		dataSlice = append(dataSlice, dataList)
 	}
 
@@ -139,87 +161,69 @@ func (s *server) GetDeviceAttributesHistory(ctx context.Context, in *pb.GetDevic
 	jsonStr, err := json.Marshal(dataMap)
 	if err != nil {
 		log.Printf("Failed to marshal dataMap: %v", err)
+		return nil, err
 	}
 	fmt.Println("dataMap", dataMap)
 	return &pb.GetDeviceAttributesHistoryReply{Status: 1, Message: "", Data: string(jsonStr)}, nil
 }
 
-// 设备历史数据记录
+// 设备历史数据记录(多条)
 func (s *server) GetDeviceHistory(ctx context.Context, in *pb.GetDeviceHistoryRequest) (*pb.GetDeviceHistoryReply, error) {
 	// 时间是毫秒数字时间戳，需要转成time.Time
-	startTime := time.Unix(0, in.GetStartTime()*int64(time.Millisecond))
+	startTime := time.Unix(0, in.GetStartTime()*int64(time.Microsecond))
 	endTime := time.Unix(0, in.GetEndTime()*int64(time.Millisecond))
+	key := in.Key
+	// 最长查询时间间隔为30天，超过100天默认查询30天
+	if endTime.Sub(startTime) > 30*24*time.Hour {
+		startTime = endTime.Add(-30 * 24 * time.Hour)
+	}
 
-	// 最长查询时间间隔为100天，超过100天默认查询100天
-	if endTime.Sub(startTime) > 100*24*time.Hour {
-		startTime = endTime.Add(-100 * 24 * time.Hour)
-	}
-	// var query string
 	var deviceId string = in.GetDeviceId()
-	var limit int64 = in.GetLimit()
-	if limit <= 0 {
-		limit = 10
-	}
-	var total int64
+	log.Printf("request:%+v", in)
+	log.Printf("st:%+v ed:%+v", startTime.String(), endTime.String())
 	var err error
 
 	var dataMapList []map[string]interface{}
 	// 查询表ts_kv，获取总数
-	if in.GetKey() != "" {
+	if len(key) > 0 {
+		if key == "" {
+			// 提示不支持
+			log.Printf("total is 0")
+			return &pb.GetDeviceHistoryReply{Status: 0, Message: "Not supported", Data: ""}, nil
+		}
+
 		finder := zorm.NewFinder()
 		finder.Append(fmt.Sprintf("SELECT ts,k,bool_v,number_v,string_v,tenant_id FROM %s.%s WHERE device_id = ? AND k = ? AND ts >= ? AND ts <= ? order by ts desc",
 			db.DBName, db.SuperTableTv), deviceId, in.GetKey(), startTime, endTime)
 
-		page := zorm.NewPage()
-		page.PageNo = 1            // 查询第1页,默认是1
-		page.PageSize = int(limit) // 每页20条,默认是20
-
-		// 不查询总条数
-		// finder.SelectTotalCount = false
-		// 如果是特别复杂的语句,造成count语句构造失败,可以手动指定count语句.或者OverrideFunc复写selectCount函数,全局替换实现
-		// countFinder := zorm.NewFinder().Append("select count(*) from (")
-		// countFinder.AppendFinder(finder)
-		// countFinder.Append(") tempcountfinder")
-		// finder.CountFinder = countFinder
+		// page := zorm.NewPage()
+		// page.PageNo = 1            // 查询第1页,默认是1
+		// page.PageSize = int(limit) // 每页20条,默认是20
 
 		// 执行查询
-		dataMapList, err = zorm.QueryMap(ctx, finder, page)
+		dataMapList, err = zorm.QueryMap(ctx, finder, nil)
 		if err != nil { // 标记测试失败
 			log.Printf("Failed to get total from ts_kv")
 			return &pb.GetDeviceHistoryReply{Status: 0, Message: "Failed to get total from ts_kv", Data: ""}, nil
 		}
-		// 打印结果
-		log.Println("总条数:", page.TotalCount)
-		total = int64(page.TotalCount)
-
-		if total == 0 {
-			log.Printf("total is 0")
-			return &pb.GetDeviceHistoryReply{Status: 0, Message: "Failed to get total from ts_kv", Data: ""}, nil
-		}
-	} else {
-		// 提示不支持
-		return &pb.GetDeviceHistoryReply{Status: 0, Message: "Not supported", Data: ""}, nil
 	}
 
 	var retMapList []map[string]interface{}
 	for _, mp := range dataMapList {
 		m := make(map[string]interface{}, 0)
 		if string_v, ok := mp["string_v"]; ok {
-			fmt.Printf("string_v:%+v\n", string_v)
 			if fmt.Sprintf("%v", string_v) != db.StringDefault {
 				m["string_v"] = string_v
 			}
 		}
 
 		if number_v, ok := mp["number_v"]; ok {
-			fmt.Printf("number_v:%+v\n", number_v)
 			if v, ok := number_v.(float64); ok && v != db.NumberDefault {
 				m["number_v"] = v
 			}
 		}
 
 		if bool_v, ok := mp["bool_v"]; ok {
-			fmt.Printf("bool_v:%+v\n", bool_v)
 			if v, ok := bool_v.(int); ok && v != db.BoolDefault {
 				m["bool_v"] = v
 			}
@@ -235,6 +239,8 @@ func (s *server) GetDeviceHistory(ctx context.Context, in *pb.GetDeviceHistoryRe
 			m["ts"] = t.UnixNano() / int64(time.Millisecond)
 		}
 
+		m["device_id"] = in.GetDeviceId()
+
 		if _, ok := mp["k"]; ok {
 			m["key"] = mp["k"]
 		}
@@ -243,16 +249,14 @@ func (s *server) GetDeviceHistory(ctx context.Context, in *pb.GetDeviceHistoryRe
 		}
 	}
 
-	var retMap = make(map[string]interface{})
-	retMap["total"] = total
-	retMap["data"] = retMapList
-
 	// 将map转成json
-	dataJson, err := json.Marshal(retMap)
+	dataJson, err := json.Marshal(retMapList)
 	if err != nil {
 		log.Printf("Failed to marshal dataMap: %v", err)
 		return &pb.GetDeviceHistoryReply{Status: 0, Message: "Failed to marshal dataMap", Data: ""}, nil
 	}
+
+	log.Println("dataJson: ", string(dataJson))
 	return &pb.GetDeviceHistoryReply{Status: 1, Message: "", Data: string(dataJson)}, nil
 }
 
@@ -278,43 +282,39 @@ func (s *server) GetDeviceHistoryWithPageAndPage(ctx context.Context, in *pb.Get
 		endTime = firstDataTime
 	}
 
+	log.Printf("request:%+v", in)
+
+	//纳秒转成时间
 	startTime2 := time.Unix(0, startTime*int64(time.Millisecond))
 	endTime2 := time.Unix(0, endTime*int64(time.Millisecond))
 
+	log.Printf("st: %+v ed: %+v", startTime2.String(), endTime2.String())
+
 	finder := zorm.NewFinder()
 	finder.Append(fmt.Sprintf(baseQuery, db.DBName, db.SuperTableTv), in.GetDeviceId(), in.GetKey(), startTime2, endTime2)
-	limit := in.GetPageRecords()
-	if limit == 0 {
-		limit = 20
-	}
-	page := zorm.NewPage()
-	page.PageNo = 1            // 查询第1页,默认是1
-	page.PageSize = int(limit) // 每页20条,默认是20
 
-	result, err := zorm.QueryMap(ctx, finder, page)
+	result, err := zorm.QueryMap(ctx, finder, nil)
 	if err != nil {
 		log.Printf("Failed to QueryMap err: %v\n", err)
 		return &pb.GetDeviceHistoryWithPageAndPageReply{Status: 0, Message: "Failed to QueryMap", Data: ""}, nil
 	}
 
+	var retMapList []map[string]interface{}
 	for _, mp := range result {
 		m := make(map[string]interface{}, 0)
 		if string_v, ok := mp["string_v"]; ok {
-			fmt.Printf("string_v:%+v\n", string_v)
 			if fmt.Sprintf("%v", string_v) != db.StringDefault {
 				m["string_v"] = string_v
 			}
 		}
 
 		if number_v, ok := mp["number_v"]; ok {
-			fmt.Printf("number_v:%+v\n", number_v)
 			if v, ok := number_v.(float64); ok && v != db.NumberDefault {
 				m["number_v"] = v
 			}
 		}
 
 		if bool_v, ok := mp["bool_v"]; ok {
-			fmt.Printf("bool_v:%+v\n", bool_v)
 			if v, ok := bool_v.(int); ok && v != db.BoolDefault {
 				m["bool_v"] = v
 			}
@@ -330,26 +330,33 @@ func (s *server) GetDeviceHistoryWithPageAndPage(ctx context.Context, in *pb.Get
 			m["ts"] = t.UnixNano() / int64(time.Millisecond)
 		}
 
+		m["device_id"] = in.GetDeviceId()
+
 		if _, ok := mp["k"]; ok {
 			m["key"] = mp["k"]
 		}
 		if len(m) > 0 {
-			result = append(result, m)
+			retMapList = append(retMapList, m)
 		}
 	}
 
 	if firstDataTime != 0 && endDataTime == 0 {
 		// 如果是向前翻页，因为结果默认是升序的，所以需要反转结果
-		for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
-			result[i], result[j] = result[j], result[i]
+		for i, j := 0, len(retMapList)-1; i < j; i, j = i+1, j-1 {
+			retMapList[i], retMapList[j] = retMapList[j], retMapList[i]
 		}
 	}
 
-	dataJson, err := json.Marshal(result)
+	// var retMap = make(map[string]interface{})
+	// retMap["total"] = page.TotalCount
+	// retMap["data"] = retMapList
+
+	dataJson, err := json.Marshal(retMapList)
 	if err != nil {
 		log.Printf("Failed to marshal dataMap: %v", err)
 		return &pb.GetDeviceHistoryWithPageAndPageReply{Status: 0, Message: "Failed to marshal dataMap", Data: ""}, nil
 	}
 
+	log.Println("dataJson: ", string(dataJson))
 	return &pb.GetDeviceHistoryWithPageAndPageReply{Status: 1, Message: "", Data: string(dataJson)}, nil
 }

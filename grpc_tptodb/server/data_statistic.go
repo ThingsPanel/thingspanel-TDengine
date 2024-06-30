@@ -13,11 +13,6 @@ import (
 	"gitee.com/chunanyong/zorm"
 )
 
-type result struct {
-	tmpMap map[string]interface{}
-	err    error
-}
-
 // 不聚合查询
 func (s *server) GetDeviceKVDataWithNoAggregate(ctx context.Context, in *pb.GetDeviceKVDataWithNoAggregateRequest) (*pb.GetDeviceKVDataWithNoAggregateReply, error) {
 	var deviceId string = in.GetDeviceId()
@@ -25,10 +20,6 @@ func (s *server) GetDeviceKVDataWithNoAggregate(ctx context.Context, in *pb.GetD
 
 	startTime := time.Unix(0, in.GetStartTime()*int64(time.Millisecond))
 	endTime := time.Unix(0, in.GetEndTime()*int64(time.Millisecond))
-
-	// 暂时先这样
-	// startTime, _ := time.Parse("2006-01-02 15:04:05", t1.Format("2006-01-02 15:04:05"))
-	// endTime, _ := time.Parse("2006-01-02 15:04:05", t2.Format("2006-01-02 15:04:05"))
 
 	finder := zorm.NewFinder()
 	query := "SELECT ts,k,bool_v,number_v,string_v,tenant_id FROM %s.%s WHERE device_id = ? AND k = ? AND ts >= ? AND ts <= ? order by ts asc"
