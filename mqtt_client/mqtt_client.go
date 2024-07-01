@@ -112,19 +112,12 @@ func messageHandler(messages chan<- map[string]interface{}, _ mqtt.Client, msg m
 	//msg.Topic()  device/attributes/device_id
 
 	// log.Printf("topic:%s, msg:%s\n", msg.Topic(), string(msg.Payload()))
-
 	payload := &mqttPayload{}
 	if err := json.Unmarshal(msg.Payload(), &payload); err != nil {
 		log.Printf("Failed to unmarshal MQTT message: %v", err)
 		return
 	}
-	// Extract device_id from the topic
-	// parts := strings.Split(msg.Topic(), "/")
-	// if len(parts) < 3 {
-	// 	log.Println("Unexpected topic format:", msg.Topic())
-	// 	return
-	// }
-	// deviceID := parts[2]
+
 	// 将消息写入通道
 	var deviceID string
 	if len(payload.DeviceId) > 0 {
@@ -140,11 +133,8 @@ func messageHandler(messages chan<- map[string]interface{}, _ mqtt.Client, msg m
 		log.Printf("Failed to unmarshal MQTT message: %v", err)
 		return
 	}
-	log.Printf("%+v\n", valuesMap)
+	log.Printf("%v %+v\n", deviceID, valuesMap)
 
-	// 当前时间戳，毫秒级
-	//currentTime := time.Now().Format(time.RFC3339)
-	// payload["value"]转[]byte
 	for key, value := range valuesMap {
 		m := map[string]interface{}{
 			"device_id": deviceID,
