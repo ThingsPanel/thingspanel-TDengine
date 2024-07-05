@@ -270,15 +270,15 @@ func (s *server) GetDeviceHistoryWithPageAndPage(ctx context.Context, in *pb.Get
 	if in.GetFirstDataTime() == 0 {
 		if in.GetEndDataTime() != 0 {
 			// 向后翻页
-			baseQuery = "SELECT ts,k,bool_v,number_v,string_v,tenant_id FROM %s.%s WHERE device_id = ? AND k = ? AND ts > ? AND ts <= ? order by ts"
+			baseQuery = "SELECT ts,k,bool_v,number_v,string_v,tenant_id FROM %s.%s WHERE device_id = ? AND k = ? AND ts > ? AND ts <= ? order by ts desc"
 			startTime = endDataTime
 		} else {
 			// 正常第一页
-			baseQuery = "SELECT ts,k,bool_v,number_v,string_v,tenant_id FROM %s.%s WHERE device_id = ? AND k = ? AND ts >= ? AND ts <= ? order by ts"
+			baseQuery = "SELECT ts,k,bool_v,number_v,string_v,tenant_id FROM %s.%s WHERE device_id = ? AND k = ? AND ts >= ? AND ts <= ? order by ts desc"
 		}
 	} else {
 		// 向前翻页
-		baseQuery = "SELECT ts,k,bool_v,number_v,string_v,tenant_id FROM %s.%s WHERE device_id = ? AND k = ? AND ts >= ? AND ts < ? order by ts"
+		baseQuery = "SELECT ts,k,bool_v,number_v,string_v,tenant_id FROM %s.%s WHERE device_id = ? AND k = ? AND ts >= ? AND ts < ? order by ts desc"
 		endTime = firstDataTime
 	}
 
