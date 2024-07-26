@@ -4,13 +4,18 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math/rand"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"gitee.com/chunanyong/zorm"
 	"github.com/spf13/viper"
 	_ "github.com/taosdata/driver-go/v3/taosRestful"
 )
+
+var Ch chan struct{}
+var Num int64
 
 type Demo struct {
 	zorm.EntityStruct
@@ -76,6 +81,8 @@ func InitTd() error {
 		// TDengineInsertsColumnName :false,
 	}
 
+	zorm.FuncPrintSQL = func(ctx context.Context, sqlstr string, args []interface{}, execSQLMillis int64) {}
+
 	var err error
 	dbDao, err = zorm.NewDBDao(&dbDaoConfig)
 	if err != nil {
@@ -107,7 +114,7 @@ func createTdStable() error {
 		return err
 	}
 
-	err = createSubTables()
+	// err = createSubTables()
 	return err
 }
 
@@ -127,75 +134,159 @@ func createSubTables() error {
 	return nil
 }
 
-func Bulk_inset_struct(messages <-chan map[string]interface{}) {
-	batchWaitTime := viper.GetDuration("db.batch_wait_time") * time.Second
-	batchSize := viper.GetInt("db.batch_size")
-	var demos = make([]zorm.IEntityStruct, 0)
+// 创建子表
+// Create tables
+func createSubTablesByName(tname, device_id string) error {
+	finder := zorm.NewFinder()
+	finder.Append(fmt.Sprintf(`create table if not exists %s.%s using %s.%s TAGS(?,?) `, DBName, tname, DBName, SuperTableTv), device_id, "device")
+	_, err := zorm.UpdateFinder(ctx, finder)
+	if err != nil {
+		log.Printf("failed to create createSubTablesByName err: %v", err)
+		return err
+	}
 
-	for {
-		var table string
-		startTime := time.Now()
-		for i := 0; i < batchSize; i++ {
-			if time.Since(startTime) > batchWaitTime {
-				break
-			}
+	return nil
+}
 
-			message, ok := <-messages
-			if !ok {
-				break
-			}
+type Worker struct {
+	Tc *time.Ticker
+}
 
-			//随机入表
-			table = fmt.Sprintf("%s00%d", SuperTableTv, rand.Intn(viper.GetInt("db.subtablenum")))
-			if _, ok := message["device_id"]; ok {
-				if value, ok := message["value"].(string); ok {
-					demo1 := Demo{Ts: time.Now(),
-						DeviceId:  fmt.Sprintf("%v", message["device_id"]),
-						K:         fmt.Sprintf("%v", message["key"]),
-						StringV:   fmt.Sprintf("%v", value),
-						NumberV:   NumberDefault,
-						BoolV:     -1,
-						TableName: fmt.Sprintf("%s.%s", DBName, table)}
-					demos = append(demos, &demo1)
-				} else if f, ok := message["value"].(float64); ok {
-					demo2 := Demo{Ts: time.Now(),
-						DeviceId:  fmt.Sprintf("%v", message["device_id"]),
-						K:         fmt.Sprintf("%v", message["key"]),
-						NumberV:   f,
-						StringV:   StringDefault,
-						BoolV:     -1,
-						TableName: fmt.Sprintf("%s.%s", DBName, table)}
-					demos = append(demos, &demo2)
-				} else if b, ok := message["value"].(bool); ok {
-					bv := 0
-					if b {
-						bv = 1
-					}
-					demo2 := Demo{Ts: time.Now(),
-						DeviceId:  fmt.Sprintf("%v", message["device_id"]),
-						K:         fmt.Sprintf("%v", message["key"]),
-						BoolV:     bv,
-						NumberV:   NumberDefault,
-						StringV:   StringDefault,
-						TableName: fmt.Sprintf("%s.%s", DBName, table)}
-					demos = append(demos, &demo2)
-				} else {
-					log.Printf("err type value:%v\n", message["device_id"])
-					continue
-				}
-			}
+func (w *Worker) DoInsertBatch(bathlist []map[string]interface{}) {
+	var err error
+	var buff strings.Builder
+	var demos []zorm.IEntityStruct
+	for i := 0; i < len(bathlist); i++ {
+		message := bathlist[i]
+		if _, ok := message["device_id"]; !ok {
+			log.Printf("device_id not exist in message:%v\n", message)
+			continue
 		}
 
-		if len(demos) > 0 {
-			// //相同结构的的子表（同一超级表下子表,如果不是必须保证类型一致）
-			//tableName 是可以替换的 demo定义的是超级表结构
-			num, err := zorm.InsertSlice(context.Background(), demos)
-			if err != nil {
-				log.Printf("err:%v\n", err)
+		deviceId := fmt.Sprintf("%s", message["device_id"])
+
+		//取deviceId中第一个-前面的作为表名
+		alist := strings.Split(deviceId, "-")
+
+		buff.WriteString(SuperTableTv)
+		buff.WriteString("_")
+		buff.WriteString(alist[0])
+		tablename := buff.String()
+		buff.Reset()
+
+		err = createSubTablesByName(tablename, deviceId)
+		if err != nil {
+			log.Printf("createSubTablesByName err:%v\n", err)
+			continue
+		}
+
+		if _, ok := message["device_id"]; ok {
+			if value, ok := message["value"].(string); ok {
+				demo1 := Demo{Ts: time.Now(),
+					DeviceId:  fmt.Sprintf("%s", message["device_id"]),
+					K:         fmt.Sprintf("%s", message["key"]),
+					StringV:   value,
+					NumberV:   NumberDefault,
+					BoolV:     -1,
+					TableName: DBName + "." + tablename}
+				demos = append(demos, &demo1)
+			} else if f, ok := message["value"].(float64); ok {
+				demo2 := Demo{Ts: time.Now(),
+					DeviceId:  fmt.Sprintf("%v", message["device_id"]),
+					K:         fmt.Sprintf("%v", message["key"]),
+					NumberV:   f,
+					StringV:   StringDefault,
+					BoolV:     -1,
+					TableName: DBName + "." + tablename}
+				demos = append(demos, &demo2)
+			} else if b, ok := message["value"].(bool); ok {
+				bv := 0
+				if b {
+					bv = 1
+				}
+				demo2 := Demo{Ts: time.Now(),
+					DeviceId:  fmt.Sprintf("%v", message["device_id"]),
+					K:         fmt.Sprintf("%v", message["key"]),
+					BoolV:     bv,
+					NumberV:   NumberDefault,
+					StringV:   StringDefault,
+					TableName: DBName + "." + tablename}
+				demos = append(demos, &demo2)
 			} else {
-				log.Printf("len:%d, num:%v\n", len(demos), num)
+				log.Printf("err type value:%v\n", message["device_id"])
+				continue
 			}
-			demos = demos[:0]
+		}
+	}
+
+	if len(demos) > 0 {
+		// //相同结构的的子表（同一超级表下子表,如果不是必须保证类型一致）
+		//tableName 是可以替换的 demo定义的是超级表结构
+		num, err := zorm.InsertSlice(context.Background(), demos)
+		if err != nil {
+			log.Printf("err:%v\n", err)
+		}
+
+		atomic.AddInt64(&Num, int64(num))
+	}
+}
+
+func (w *Worker) Bulk_inset_struct(wg *sync.WaitGroup, ctx context.Context, messages chan map[string]interface{}) {
+	defer wg.Done()
+
+	batchWaitTime := viper.GetDuration("db.batch_wait_time") * time.Second
+	batchSize := viper.GetInt("db.batch_size")
+
+	log.Printf("batchSize: %+v batchWaitTime: %+v\n", batchSize, batchWaitTime)
+
+	w.Tc = time.NewTicker(1 * time.Second)
+	defer w.Tc.Stop()
+	bathlist := make([]map[string]interface{}, 0)
+
+	for {
+		select {
+		case <-ctx.Done():
+			if len(bathlist) > 0 {
+				w.DoInsertBatch(bathlist)
+			}
+			return
+		case message, ok := <-messages:
+			if !ok {
+				if len(bathlist) > 0 {
+					w.DoInsertBatch(bathlist)
+				}
+				return
+			}
+
+			if _, ok := message["device_id"]; !ok {
+				continue
+			}
+
+			deviceid := message["device_id"]
+			delete(message, "device_id")
+
+			for key, value := range message {
+				info := map[string]interface{}{
+					"device_id": deviceid,
+					"key":       key,
+					"value":     value,
+					"ts":        time.Now().Nanosecond(),
+				}
+
+				bathlist = append(bathlist, info)
+			}
+
+			if (len(bathlist) >= batchSize) || (time.Since(time.Now()) >= batchWaitTime && len(bathlist) > 0) {
+				w.DoInsertBatch(bathlist)
+				bathlist = bathlist[0:0]
+			}
+
+		case <-w.Tc.C:
+			// log.Printf("Num: %+v\n", atomic.LoadInt64(&Num))
+			if len(bathlist) > 0 {
+				w.DoInsertBatch(bathlist)
+				bathlist = bathlist[0:0]
+			}
 		}
 	}
 }

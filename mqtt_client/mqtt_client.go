@@ -1,9 +1,13 @@
 package mqttclient
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"path"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,10 +18,20 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
+var count int64
+var wg *sync.WaitGroup
+var ctx context.Context
+var c context.CancelFunc
+
 type mqttPayload struct {
 	Token    string `json:"token"`
 	DeviceId string `json:"device_id"`
 	Values   []byte `json:"values"`
+}
+
+func GenTopic(topic string) string {
+	topic = path.Join("$share/mygroup", topic)
+	return topic
 }
 
 func MqttInit() {
@@ -52,7 +66,6 @@ func Connect() {
 		}
 	}
 	opts := mqtt.NewClientOptions()
-	// opts.SetClientID("mqtt_60c182cd-162") //设置客户端ID
 	opts.SetClientID(uuid.New().String()) //设置客户端ID
 	opts.SetUsername(viper.GetString("mqtt.username"))
 	opts.SetPassword(viper.GetString("mqtt.password"))
@@ -82,6 +95,12 @@ func Connect() {
 	}()
 }
 
+func ShutDown() {
+	c()
+	wg.Wait()
+	log.Printf("ShutDown count: %+v\n", atomic.LoadInt64(&count))
+}
+
 // 订阅主题
 func SubscribeTopic(client mqtt.Client) {
 	// 启动批量写入
@@ -90,12 +109,20 @@ func SubscribeTopic(client mqtt.Client) {
 	messages := make(chan map[string]interface{}, channelBufferSize)
 	// 写入协程数
 	var writeWorkers = viper.GetInt("db.write_workers")
+
+	wg = &sync.WaitGroup{}
+	ctx, c = context.WithCancel(context.Background())
 	for i := 0; i < writeWorkers; i++ {
-		go db.Bulk_inset_struct(messages)
+		wg.Add(1)
+		w := &db.Worker{}
+		go w.Bulk_inset_struct(wg, ctx, messages)
 	}
+
 	// 设置消息回调处理函数
 	var qos byte = byte(viper.GetUint("mqtt.qos"))
 	topic := viper.GetString("mqtt.attribute_topic")
+	topic = GenTopic(topic)
+	fmt.Print("topic: ", topic)
 	token := client.Subscribe(topic, qos, func(client mqtt.Client, msg mqtt.Message) {
 		messageHandler(messages, client, msg)
 	})
@@ -108,10 +135,6 @@ func SubscribeTopic(client mqtt.Client) {
 
 // 消息处理函数
 func messageHandler(messages chan<- map[string]interface{}, _ mqtt.Client, msg mqtt.Message) {
-	//msg.Payload() {"token":"xxx" "value":{ key1:str_v1, key2:str_v2 ...}}
-	//msg.Topic()  device/attributes/device_id
-
-	// log.Printf("topic:%s, msg:%s\n", msg.Topic(), string(msg.Payload()))
 	payload := &mqttPayload{}
 	if err := json.Unmarshal(msg.Payload(), &payload); err != nil {
 		log.Printf("Failed to unmarshal MQTT message: %v", err)
@@ -133,22 +156,15 @@ func messageHandler(messages chan<- map[string]interface{}, _ mqtt.Client, msg m
 		log.Printf("Failed to unmarshal MQTT message: %v", err)
 		return
 	}
-	log.Printf("%v %+v\n", deviceID, valuesMap)
 
-	for key, value := range valuesMap {
-		m := map[string]interface{}{
-			"device_id": deviceID,
-			"key":       key,
-			"value":     value,
-			"ts":        time.Now().UnixMilli(),
-		}
+	valuesMap["device_id"] = deviceID
 
-		// log.Printf("%+v\n", m)
-
-		select {
-		case messages <- m:
-		default:
-			log.Printf("can not write msg:%+v\n", m)
-		}
+	select {
+	case messages <- valuesMap:
+		// atomic.AddInt64(&count, 1)
+	default:
+		log.Printf("can not write msg:%+v\n", valuesMap)
 	}
+
+	// log.Printf("count: %+v\n", atomic.LoadInt64(&count))
 }

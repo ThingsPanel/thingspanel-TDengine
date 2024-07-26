@@ -1,5 +1,5 @@
 mqtt:
-  host: 47.92.253.145  #mqtt地址
+  host: 47.121.194.218  #mqtt地址
   port: 1883
   username: root
   password: root
@@ -7,20 +7,20 @@ mqtt:
   attribute_topic: devices/telemetry
 
 db:
-  host: 127.0.0.1 #数据库地址
+  host: 47.121.195.1 #数据库地址
   port: 6041
   expire: 365  # 数据过期时间365天
   username: root
   password: taosdata
   subtablenum: 10  # 创建的子表数量
-  max_connection: 100 # max connection pool size(最大连接池大小)
+  max_connection: 300 # max connection pool size(最大连接池大小)
   max_retries: 10000 # max retries for connection(最大连接重试次数)
   retry_period: 5 # retry period in seconds(重试周期，单位秒)
   num_conns: 10 # number of connections per host(每个主机的连接数)
-  batch_size: 100 # batch size(批量大小)
-  channel_buffer_size: 1000 # channel buffer size(通道缓冲区大小)
-  write_workers: 2 # number of write workers(写入工作线程数)
-  batch_wait_time: 10 # batch wait time in seconds(批量等待时间，单位秒)
+  batch_size: 1000 # batch size(批量大小)
+  channel_buffer_size: 50000 # channel buffer size(通道缓冲区大小)
+  write_workers: 20 # number of write workers(写入工作线程数)
+  batch_wait_time: 1 # batch wait time in seconds(批量等待时间，单位秒)
 
 grpc:
   host: 127.0.0.1
